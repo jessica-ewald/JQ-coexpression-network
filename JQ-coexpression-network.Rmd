@@ -36,13 +36,12 @@ library(pheatmap)
 library(RColorBrewer)
 ```
 
-## Analyze data from adult Japanese quail
 
 ### Read in data
 
 The following code reads in and formats the counts table and metadata table for the adult Japanese quail RNA-seq dataset.
 
-```{r format.adult, message=FALSE}
+```{r format, message=FALSE}
 # read in adult data
 bap.seme <- read.table("data/Kallisto_Adult_JQ_BaP_SeMe.txt")
 cpf.ee2.tb <- read.table("data/Kallisto_Adult_JQ_CPF_EE2_TB.txt")
@@ -87,7 +86,7 @@ rm(bap.seme, bap.seme.meta, cpf.ee2.tb, cpf.ee2.tb.meta, pb.flx.hbcd, pb.flx.hbc
 
 Counts are filtered to remove those with low abundance and low variance, and normalized with the 'varianceStabilizingTransformation' from DESeq2 which has been shown to improve clustering performance. Variance filtering is performed after the varianceStabilizingTransformation.
 
-```{r norm.adult, message=FALSE}
+```{r norm, message=FALSE}
 
 # boxplot of counts
 boxplot(dat.expr.adult, main = "Counts for all adult samples")
@@ -117,3 +116,109 @@ boxplot(dat.expr.adult, col = c(dat.meta.adult$batch),
         main = "log2(filtered.data) for all adult samples", sub = "Coloured by batch")
 
 ```
+
+### Batch effect correction
+
+The following code generates a PCA scores plot of the normalized data, from which we see that there is batch effect that should be corrected. After applying ComBat, the PCA scores plot is re-generated and we can see that the batch effect is no longer visible.
+
+```{r batch, message=FALSE, warning=FALSE}
+# pca
+pca.adult <- prcomp(t(dat.expr.adult))
+pca.dat.adult <- pca.adult$x %>% data.frame()
+pca.dat.adult$chem <- as.character(dat.meta.adult$chem)
+pca.dat.adult$batch <- as.character(dat.meta.adult$batch)
+
+# plot pca data - batch
+ggplot(pca.dat.adult, aes(x = PC1, y = PC2, color = factor(unlist(batch)))) +
+  geom_point(aes(size = 3)) +
+  theme_classic(base_size = 15) +
+  scale_size(guide = 'none') +
+  theme(legend.position = 'bottom', 
+        legend.background = element_rect(color = "black", size = 0.5, linetype = "solid"),
+        plot.title = element_text(hjust = 0.5)) +
+  guides(color = guide_legend(title="Batch", legend.position = c(0.95,0.25))) +
+  ggtitle("All samples (before ComBat)")
+
+# prepare combat input
+batch.adult <- dat.meta.adult$batch
+mod.combat.adult <- model.matrix(~1, data = dat.meta.adult)
+
+# adjust for batch effect
+dat.combat.adult <- ComBat(dat = dat.expr.adult, batch = batch.adult, mod = mod.combat.adult)
+
+# pca
+pca.adult <- prcomp(t(dat.combat.adult))
+pca.dat.adult <- pca.adult$x %>% data.frame()
+pca.dat.adult$batch <- as.character(dat.meta.adult$batch)
+pca.dat.adult$chem <- as.character(dat.meta.adult$chem)
+
+# plot pca data - batch
+ggplot(pca.dat.adult, aes(x = PC1, y = PC2, color = factor(unlist(batch)))) +
+  geom_point(aes(size = 3)) +
+  theme_classic(base_size = 15) +
+  scale_size(guide = 'none') +
+  theme(legend.position = 'bottom', 
+        legend.background = element_rect(color = "black", size = 0.5, linetype = "solid"),
+        plot.title = element_text(hjust = 0.5)) +
+  guides(color = guide_legend(title="Batch", legend.position = c(0.95,0.25))) +
+  ggtitle("All samples (after ComBat)")
+```
+
+### Detect outliers
+
+Prior to performing any network calculations, it is important to ensure that there are no outliers in the dataset. While we can partially see this from the boxplot and PCA plot above, the WGCNA package also has some diagnostic plots for this. The dendrogram below provides further evidence that there are no sample outliers.
+
+```{r outlier, message=FALSE, warning=FALSE}
+# format expression and phenotype data (apical outcome)
+datExprT.adult <- t(dat.expr.adult)
+dat.trait.adult <- dat.meta.adult[,-c(1,5)]
+dat.trait.adult$chem <- dat.trait.adult$chem %>% as.factor() %>% as.numeric()
+dat.trait.adult$dose <- dat.trait.adult$dose %>% as.factor() %>% as.numeric()
+dat.trait.adult$batch <- dat.trait.adult$batch %>% as.factor() %>% as.numeric()
+
+
+traitColors.adult = numbers2colors(dat.trait.adult, signed = FALSE)
+
+sampleTree.adult = hclust(dist(datExprT.adult), method = "average") 
+plot(sampleTree.adult, main = "Sample clustering to detect outliers", sub="", xlab="", cex.lab = 1.5,
+     cex.axis = 1.5, cex.main = 2)
+
+plotDendroAndColors(sampleTree.adult, traitColors.adult,
+                    groupLabels = names(dat.trait.adult),
+                    main = "Sample dendrogram and trait heatmap")
+```
+
+### Compute network parameters
+
+The first step of co-expression network computation performed with WGCNA is to determine the appropriate soft threshold parameter. To do this, we check network connectivity statistics for many versions of the parameter, and choose the lowest one that achieves a decent R2 value in the plot below. For this dataset, a soft threshold parameter of 8 is a good choice.
+
+```{r networkPars, message=FALSE, warning=FALSE}
+# set powers to check
+powers = c(seq(from = 2, to=40, by=2))
+
+# check each threshold
+sft.adult = pickSoftThreshold(datExprT.adult, powerVector = powers)
+
+par(mfrow = c(1,2))
+cex1 = 0.9
+plot(sft.adult$fitIndices[,1], -sign(sft.adult$fitIndices[,3])*sft.adult$fitIndices[,2],
+     xlab="Soft Threshold (power)",ylab="Scale Free Topology Model Fit,signed R^2",type="n",
+     main = paste("Scale independence (adult)"))
+text(sft.adult$fitIndices[,1], -sign(sft.adult$fitIndices[,3])*sft.adult$fitIndices[,2],
+     labels=powers,cex=cex1,col="red")
+# this line corresponds to using an R^2 cut-off of h
+abline(h=0.90,col="red")
+# Mean connectivity as a function of the soft-thresholding power
+plot(sft.adult$fitIndices[,1], sft.adult$fitIndices[,5],
+     xlab="Soft Threshold (power)",ylab="Mean Connectivity", type="n",
+     main = paste("Mean connectivity (adult)"))
+text(sft.adult$fitIndices[,1], sft.adult$fitIndices[,5], labels=powers, cex=cex1,col="red")
+
+
+sftThr <- 8
+```
+
+### Compute network and detect modules
+
+### Compute module statistics
+
