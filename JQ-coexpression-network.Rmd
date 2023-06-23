@@ -13,22 +13,107 @@ date: "2023-06-23"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
+## Load packages
 
-This is an example edit.
+This script loads packages for the following tasks:
+<ul>
+<li>**General data manipulation: ** dplyr, reshape, data.table</li>
+<li>**Transcriptomics analysis: ** WGCNA, DESeq2, limma, sva</li>
+<li>**Visualization: ** ggplot2, ggpubr, pheatmap, RColorBrewer</li>
+</ul>
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+```{r packages, message=FALSE}
+library(dplyr)
+library(reshape)
+library(data.table)
+library(WGCNA)
+library(DESeq2)
+library(limma)
+library(sva)
+library(ggplot2)
+library(ggpubr)
+library(pheatmap)
+library(RColorBrewer)
 ```
 
-## Including Plots
+## Analyze data from adult Japanese quail
 
-You can also embed plots, for example:
+### Read in data
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+The following code reads in and formats the counts table and metadata table for the adult Japanese quail RNA-seq dataset.
+
+```{r format.adult, message=FALSE}
+# read in adult data
+bap.seme <- read.table("data/Kallisto_Adult_JQ_BaP_SeMe.txt")
+cpf.ee2.tb <- read.table("data/Kallisto_Adult_JQ_CPF_EE2_TB.txt")
+pb.flx.hbcd <- read.table("data/Kallisto_Adult_JQ_Pb_FLX_HBCD.txt")
+
+# pull out meta data
+bap.seme.meta <- read.table("data/Kallisto_Adult_JQ_BaP_SeMe.txt",
+                            nrow = 5, comment.char = "&", row.names = 1) %>% t() %>% data.frame()
+colnames(bap.seme.meta) <- c("sample", "chem", "dose", "batch", "lifestage")
+cpf.ee2.tb.meta <- read.table("data/Kallisto_Adult_JQ_CPF_EE2_TB.txt",
+                              nrow = 5, comment.char = "&", row.names = 1) %>% t() %>% data.frame()
+colnames(cpf.ee2.tb.meta) <- c("sample", "chem", "dose", "batch", "lifestage")
+pb.flx.hbcd.meta <- read.table("data/Kallisto_Adult_JQ_Pb_FLX_HBCD.txt",
+                               nrow = 5, comment.char = "&", row.names = 1) %>% t() %>% data.frame()
+colnames(pb.flx.hbcd.meta) <- c("sample", "chem", "dose", "batch", "lifestage")
+
+# sum rows for same entrez ID
+bap.seme <- aggregate(bap.seme[-1], bap.seme[1], sum)
+cpf.ee2.tb <- aggregate(cpf.ee2.tb[-1], cpf.ee2.tb[1], sum)
+pb.flx.hbcd <- aggregate(pb.flx.hbcd[-1], pb.flx.hbcd[1], sum)
+
+# give new column names
+colnames(bap.seme) <- c("entrez", as.character(bap.seme.meta$sample))
+colnames(cpf.ee2.tb) <- c("entrez", as.character(cpf.ee2.tb.meta$sample))
+colnames(pb.flx.hbcd) <- c("entrez", as.character(pb.flx.hbcd.meta$sample))
+
+# merge together expression data
+dat.expr.adult <- merge(bap.seme, cpf.ee2.tb, by = "entrez") %>%
+  merge(., pb.flx.hbcd, by = "entrez")
+rownames(dat.expr.adult) <- dat.expr.adult[, 1]
+dat.expr.adult <- dat.expr.adult[, -1]
+
+# merge together meta data
+dat.meta.adult <- rbind(bap.seme.meta, cpf.ee2.tb.meta) %>%
+  rbind(., pb.flx.hbcd.meta)
+
+# remove files for ind batches
+rm(bap.seme, bap.seme.meta, cpf.ee2.tb, cpf.ee2.tb.meta, pb.flx.hbcd, pb.flx.hbcd.meta)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+### Filtering and normalization
+
+Counts are filtered to remove those with low abundance and low variance, and normalized with the 'varianceStabilizingTransformation' from DESeq2 which has been shown to improve clustering performance. Variance filtering is performed after the varianceStabilizingTransformation.
+
+```{r norm.adult, message=FALSE}
+
+# boxplot of counts
+boxplot(dat.expr.adult, main = "Counts for all adult samples")
+
+# remove rows with < 10 counts
+count.pass.adult <- apply(dat.expr.adult, 1, function(x) {x < 10})
+count.pass.adult <- apply(count.pass.adult, 2, sum)
+count.pass.adult <- names(count.pass.adult[count.pass.adult < 85]) 
+dat.expr.adult <- dat.expr.adult[rownames(dat.expr.adult) %in% count.pass.adult, ] %>% as.matrix()
+rm(count.pass.adult)
+
+# convert to integer data instead of numeric
+dat.expr.adult <- ceiling(dat.expr.adult)
+mode(dat.expr.adult) <- "integer"
+
+# do variance stabilizing transformation
+dat.expr.adult <- varianceStabilizingTransformation(dat.expr.adult)
+
+# Remove lowest 15th percentile with low variation
+var.gene.adult <- apply(dat.expr.adult, 1, var)
+var.15.adult <- quantile(var.gene.adult, 0.15)
+var.pass.adult <- names(var.gene.adult[var.gene.adult > var.15.adult])
+dat.expr.adult <- dat.expr.adult[rownames(dat.expr.adult) %in% var.pass.adult, ]
+
+# boxplot after filtering/normalization
+boxplot(dat.expr.adult, col = c(dat.meta.adult$batch),
+        main = "log2(filtered.data) for all adult samples", sub = "Coloured by batch")
+
+```
