@@ -355,9 +355,17 @@ display: none;
 </div>
 
 
-<div id="load-packages" class="section level2">
-<h2>Load packages</h2>
-This script loads packages for the following tasks:
+<div id="introduction" class="section level3">
+<h3>Introduction</h3>
+<p>The objective of co-expression network analysis is to find groups of
+transcripts that have coordinated expression patterns, and then to
+analyze the detected groups to understand higher-level trends in the
+data. Here, co-expression analysis is performed using RNA-seq data from
+Japanese quail liver that were exposed to eight different chemicals.</p>
+</div>
+<div id="load-packages" class="section level3">
+<h3>Load packages</h3>
+<p>This script loads packages for the following tasks:</p>
 <ul>
 <li>
 <strong>General data manipulation: </strong> dplyr, reshape, data.table
@@ -380,6 +388,7 @@ library(ggplot2)
 library(ggpubr)
 library(pheatmap)
 library(RColorBrewer)</code></pre>
+</div>
 <div id="read-in-data" class="section level3">
 <h3>Read in data</h3>
 <p>The following code reads in and formats the counts table and metadata
@@ -585,10 +594,32 @@ text(sft.adult$fitIndices[,1], sft.adult$fitIndices[,5], labels=powers, cex=cex1
 </div>
 <div id="compute-network-and-detect-modules" class="section level3">
 <h3>Compute network and detect modules</h3>
-</div>
-<div id="compute-module-statistics" class="section level3">
-<h3>Compute module statistics</h3>
-</div>
+<p>Finally, we compute the transcript:transcript relationships using the
+soft threshold parameter and detect modules in this network. Downstream
+steps could include performing functional analysis of each module to
+determine biological process or cellular component labels, hub gene
+analysis, or associations between modules and phenotypes.</p>
+<pre class="r"><code>#adj = adjacency(datExprT.adult, power = sftThr, type = &quot;signed&quot;, corFnc = &quot;bicor&quot;)
+#TOM = TOMdist(adj, TOMType = &quot;signed&quot;)
+
+# set minimum module size
+#minModuleSize &lt;- 30
+
+# Call the hierarchical clustering function
+#geneTree &lt;- hclust(as.dist(TOM), method = &quot;average&quot;)
+
+# detect modules
+#mColor=NULL
+#for (ds in 0:3){
+  #tree = cutreeHybrid(dendro = geneTree, pamStage=FALSE,
+                      #minClusterSize = minModuleSize, cutHeight = 0.99,
+                      #deepSplit = ds, distM = TOM)
+  #mColor=cbind(mColor,labels2colors(tree$labels));
+#}
+
+#plotDendroAndColors(geneTree, mColor, paste(&quot;dpSplt =&quot;,0:3), main = &quot;Detected modules (adult)&quot;, dendroLabels=FALSE);
+
+#modules &lt;- mColor[,4]</code></pre>
 </div>
 
 

@@ -13,16 +13,22 @@ date: "2023-06-23"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## Load packages
+### Introduction
+
+The objective of co-expression network analysis is to find groups of transcripts that have coordinated expression patterns, and then to analyze the detected groups to understand higher-level trends in the data. Here, co-expression analysis is performed using RNA-seq data from Japanese quail liver that were exposed to eight different chemicals.
+
+
+### Load packages
 
 This script loads packages for the following tasks:
+
 <ul>
 <li>**General data manipulation: ** dplyr, reshape, data.table</li>
 <li>**Transcriptomics analysis: ** WGCNA, DESeq2, limma, sva</li>
 <li>**Visualization: ** ggplot2, ggpubr, pheatmap, RColorBrewer</li>
 </ul>
 
-```{r packages, message=FALSE}
+```{r packages, message=FALSE, cache=TRUE}
 library(dplyr)
 library(reshape)
 library(data.table)
@@ -41,7 +47,7 @@ library(RColorBrewer)
 
 The following code reads in and formats the counts table and metadata table for the adult Japanese quail RNA-seq dataset.
 
-```{r format, message=FALSE}
+```{r format, message=FALSE, cache=TRUE}
 # read in adult data
 bap.seme <- read.table("data/Kallisto_Adult_JQ_BaP_SeMe.txt")
 cpf.ee2.tb <- read.table("data/Kallisto_Adult_JQ_CPF_EE2_TB.txt")
@@ -86,7 +92,7 @@ rm(bap.seme, bap.seme.meta, cpf.ee2.tb, cpf.ee2.tb.meta, pb.flx.hbcd, pb.flx.hbc
 
 Counts are filtered to remove those with low abundance and low variance, and normalized with the 'varianceStabilizingTransformation' from DESeq2 which has been shown to improve clustering performance. Variance filtering is performed after the varianceStabilizingTransformation.
 
-```{r norm, message=FALSE}
+```{r norm, message=FALSE, cache=TRUE}
 
 # boxplot of counts
 boxplot(dat.expr.adult, main = "Counts for all adult samples")
@@ -121,7 +127,7 @@ boxplot(dat.expr.adult, col = c(dat.meta.adult$batch),
 
 The following code generates a PCA scores plot of the normalized data, from which we see that there is batch effect that should be corrected. After applying ComBat, the PCA scores plot is re-generated and we can see that the batch effect is no longer visible.
 
-```{r batch, message=FALSE, warning=FALSE}
+```{r batch, message=FALSE, warning=FALSE, cache=TRUE}
 # pca
 pca.adult <- prcomp(t(dat.expr.adult))
 pca.dat.adult <- pca.adult$x %>% data.frame()
@@ -168,7 +174,7 @@ ggplot(pca.dat.adult, aes(x = PC1, y = PC2, color = factor(unlist(batch)))) +
 
 Prior to performing any network calculations, it is important to ensure that there are no outliers in the dataset. While we can partially see this from the boxplot and PCA plot above, the WGCNA package also has some diagnostic plots for this. The dendrogram below provides further evidence that there are no sample outliers.
 
-```{r outlier, message=FALSE, warning=FALSE}
+```{r outlier, message=FALSE, warning=FALSE, cache=TRUE}
 # format expression and phenotype data (apical outcome)
 datExprT.adult <- t(dat.expr.adult)
 dat.trait.adult <- dat.meta.adult[,-c(1,5)]
@@ -192,7 +198,7 @@ plotDendroAndColors(sampleTree.adult, traitColors.adult,
 
 The first step of co-expression network computation performed with WGCNA is to determine the appropriate soft threshold parameter. To do this, we check network connectivity statistics for many versions of the parameter, and choose the lowest one that achieves a decent R2 value in the plot below. For this dataset, a soft threshold parameter of 8 is a good choice.
 
-```{r networkPars, message=FALSE, warning=FALSE}
+```{r networkPars, message=FALSE, warning=FALSE, cache=TRUE}
 # set powers to check
 powers = c(seq(from = 2, to=40, by=2))
 
@@ -220,5 +226,31 @@ sftThr <- 8
 
 ### Compute network and detect modules
 
-### Compute module statistics
+Finally, we compute the transcript:transcript relationships using the soft threshold parameter and detect modules in this network. Downstream steps could include performing functional analysis of each module to determine biological process or cellular component labels, hub gene analysis, or associations between modules and phenotypes.
+
+```{r computeNetwork, message=FALSE, warning=FALSE, cache=TRUE}
+adj = adjacency(datExprT.adult, power = sftThr, type = "signed", corFnc = "bicor")
+TOM = TOMdist(adj, TOMType = "signed")
+
+# set minimum module size
+minModuleSize <- 30
+
+# Call the hierarchical clustering function
+geneTree <- hclust(as.dist(TOM), method = "average")
+
+# detect modules
+mColor=NULL
+for (ds in 0:3){
+  tree = cutreeHybrid(dendro = geneTree, pamStage=FALSE,
+                      minClusterSize = minModuleSize, cutHeight = 0.99,
+                      deepSplit = ds, distM = TOM)
+  mColor=cbind(mColor,labels2colors(tree$labels));
+}
+
+plotDendroAndColors(geneTree, mColor, paste("dpSplt =",0:3), main = "Detected modules (adult)", dendroLabels=FALSE);
+
+modules <- mColor[,4]
+```
+
+
 
